@@ -1,0 +1,13 @@
+{
+  "name": "rbbot",
+  "version": "1.0.0",
+  "description": "Telegram bot for Riftbound card lookups",
+  "main": "rbbot.js",
+  "scripts": {
+    "start": "node rbbot.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.7.0",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
