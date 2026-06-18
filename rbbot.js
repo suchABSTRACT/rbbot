@@ -17,7 +17,7 @@ const fetch = require("node-fetch");
 
 // â”€â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const BOT_TOKEN = process.env.BOT_TOKEN || "YOUR_BOT_TOKEN_HERE";
-const RIFTCODEX_BASE = "https://api.riftcodex.com/api";
+const RIFTCODEX_BASE = "https://api.riftcodex.com";
 
 // â”€â”€â”€ Bot Setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -26,32 +26,48 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 async function lookupCard(cardName) {
   const name = cardName.trim();
 
-  // Try exact match first
+  // Convert name to + separated for the API (e.g. "Irelia, Fervent" â†’ "Irelia+Fervent")
+  const queryParam = name.replace(/[,]/g, "").replace(/\s+/g, "+");
+
+  // 1. Try exact match
   try {
-    const url = `${RIFTCODEX_BASE}/cards/name?exact=${encodeURIComponent(name)}`;
-    console.log(`[exact] Fetching: ${url}`);
+    const url = `${RIFTCODEX_BASE}/cards/name?exact=${queryParam}`;
+    console.log(`[exact] GET ${url}`);
     const res = await fetch(url);
     const json = await res.json();
-    console.log(`[exact] Response:`, JSON.stringify(json).slice(0, 300));
-    const cards = json.items ?? json.data ?? json;
-    if (Array.isArray(cards) && cards.length > 0) return cards[0];
+    console.log(`[exact] Response: ${JSON.stringify(json).slice(0, 400)}`);
+    const cards = json.items ?? json.data ?? (Array.isArray(json) ? json : null);
+    if (cards && cards.length > 0) return cards[0];
     if (json.name) return json; // single card returned directly
   } catch (err) {
     console.error("[exact] Error:", err.message);
   }
 
-  // Fall back to fuzzy match
+  // 2. Try fuzzy match
   try {
-    const url = `${RIFTCODEX_BASE}/cards/name?fuzzy=${encodeURIComponent(name)}`;
-    console.log(`[fuzzy] Fetching: ${url}`);
+    const url = `${RIFTCODEX_BASE}/cards/name?fuzzy=${queryParam}`;
+    console.log(`[fuzzy] GET ${url}`);
     const res = await fetch(url);
     const json = await res.json();
-    console.log(`[fuzzy] Response:`, JSON.stringify(json).slice(0, 300));
-    const cards = json.items ?? json.data ?? json;
-    if (Array.isArray(cards) && cards.length > 0) return cards[0];
+    console.log(`[fuzzy] Response: ${JSON.stringify(json).slice(0, 400)}`);
+    const cards = json.items ?? json.data ?? (Array.isArray(json) ? json : null);
+    if (cards && cards.length > 0) return cards[0];
     if (json.name) return json;
   } catch (err) {
     console.error("[fuzzy] Error:", err.message);
+  }
+
+  // 3. Fall back to general search
+  try {
+    const url = `${RIFTCODEX_BASE}/cards/search?query=${queryParam}`;
+    console.log(`[search] GET ${url}`);
+    const res = await fetch(url);
+    const json = await res.json();
+    console.log(`[search] Response: ${JSON.stringify(json).slice(0, 400)}`);
+    const cards = json.items ?? json.data ?? (Array.isArray(json) ? json : null);
+    if (cards && cards.length > 0) return cards[0];
+  } catch (err) {
+    console.error("[search] Error:", err.message);
   }
 
   return null;
@@ -60,16 +76,16 @@ async function lookupCard(cardName) {
 // â”€â”€â”€ Build Caption â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildCaption(card) {
   const name = card.name ?? "Unknown";
-  const type = card.classification?.type ?? card.type ?? "";
-  const supertype = card.classification?.supertype ?? card.supertype ?? "";
-  const rarity = card.classification?.rarity ?? card.rarity ?? "";
-  const domain = (card.classification?.domain ?? card.domain ?? []).join(", ");
-  const energy = card.attributes?.energy ?? card.energy;
-  const might = card.attributes?.might ?? card.might;
-  const power = card.attributes?.power ?? card.power;
-  const set = card.set?.label ?? card.set?.set_id ?? card.set ?? "";
-  const plainText = card.text?.plain ?? card.text ?? "";
-  const flavour = card.text?.flavour ?? card.flavour_text ?? "";
+  const type = card.classification?.type ?? "";
+  const supertype = card.classification?.supertype ?? "";
+  const rarity = card.classification?.rarity ?? "";
+  const domain = (card.classification?.domain ?? []).join(", ");
+  const energy = card.attributes?.energy;
+  const might = card.attributes?.might;
+  const power = card.attributes?.power;
+  const set = card.set?.label ?? card.set?.set_id ?? "";
+  const plainText = card.text?.plain ?? "";
+  const flavour = card.text?.flavour ?? "";
 
   const typeLine = [supertype, type].filter(Boolean).join(" ");
   const stats = [
@@ -127,7 +143,7 @@ bot.on("message", async (msg) => {
         continue;
       }
 
-      const imageUrl = card.media?.image_url ?? card.image_url ?? card.image;
+      const imageUrl = card.media?.image_url;
       const caption = buildCaption(card);
 
       if (imageUrl) {
