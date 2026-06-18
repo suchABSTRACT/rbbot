@@ -3,93 +3,83 @@
  *
  * Setup:
  *   1. npm install node-telegram-bot-api node-fetch
- *   2. Create a bot via @BotFather on Telegram, get your token.
- *   3. Set your token below (or use an environment variable).
- *   4. Add the bot to your group and promote it (or just add it — no admin needed).
- *   5. node rbbot.js
+ *   2. Set BOT_TOKEN as an environment variable in Railway.
+ *   3. node rbbot.js
  *
- * Usage in group:
+ * Usage in Telegram group:
+ *   [[Irelia, Fervent]]
+ *   [[Master Yi]] [[Jinx]]   ← multiple cards in one message
  *   /rbbot [[Irelia, Fervent]]
- *   /rbbot [[Master Yi]] [[Jinx]]   ← multiple cards in one message
- *   [[Irelia, Fervent]]              ← also works without /rbbot command
  */
 
 const TelegramBot = require("node-telegram-bot-api");
 const fetch = require("node-fetch");
 
-// ─── Config ──────────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 const BOT_TOKEN = process.env.BOT_TOKEN || "YOUR_BOT_TOKEN_HERE";
 const RIFTCODEX_BASE = "https://api.riftcodex.com";
 
-// ─── Bot Setup ───────────────────────────────────────────────────────────────
+// ─── Bot Setup ────────────────────────────────────────────────────────────────
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-// ─── Card Lookup ─────────────────────────────────────────────────────────────
+// ─── Card Lookup ──────────────────────────────────────────────────────────────
 async function lookupCard(cardName) {
-  const encoded = encodeURIComponent(cardName.trim());
+  const name = cardName.trim();
 
-  // Try exact match first, then fall back to fuzzy
-  const exactUrl = `${RIFTCODEX_BASE}/cards/name?exact=${encoded}`;
-  const fuzzyUrl = `${RIFTCODEX_BASE}/cards/name?fuzzy=${encoded}`;
-
-  let card = null;
-
+  // Try exact match first
   try {
-    const exactRes = await fetch(exactUrl);
-    const exactData = await exactRes.json();
-    const exactItems = exactData.items ?? exactData; // handle both array and paginated response
-    if (Array.isArray(exactItems) && exactItems.length > 0) {
-      card = exactItems[0];
-    }
+    const exactUrl = `${RIFTCODEX_BASE}/cards/name?exact=${encodeURIComponent(name)}`;
+    const res = await fetch(exactUrl);
+    const json = await res.json();
+    const cards = json.data ?? json;
+    if (Array.isArray(cards) && cards.length > 0) return cards[0];
   } catch (_) {}
 
-  if (!card) {
-    try {
-      const fuzzyRes = await fetch(fuzzyUrl);
-      const fuzzyData = await fuzzyRes.json();
-      const fuzzyItems = fuzzyData.items ?? fuzzyData;
-      if (Array.isArray(fuzzyItems) && fuzzyItems.length > 0) {
-        card = fuzzyItems[0];
-      }
-    } catch (_) {}
-  }
+  // Fall back to fuzzy match
+  try {
+    const fuzzyUrl = `${RIFTCODEX_BASE}/cards/name?fuzzy=${encodeURIComponent(name)}`;
+    const res = await fetch(fuzzyUrl);
+    const json = await res.json();
+    const cards = json.data ?? json;
+    if (Array.isArray(cards) && cards.length > 0) return cards[0];
+  } catch (_) {}
 
-  return card;
+  return null;
 }
 
-// ─── Format Card Caption ─────────────────────────────────────────────────────
+// ─── Build Caption ────────────────────────────────────────────────────────────
 function buildCaption(card) {
   const name = card.name ?? "Unknown";
   const type = card.classification?.type ?? "";
   const supertype = card.classification?.supertype ?? "";
   const rarity = card.classification?.rarity ?? "";
   const domain = (card.classification?.domain ?? []).join(", ");
-  const energy = card.attributes?.energy ?? null;
-  const might = card.attributes?.might ?? null;
-  const power = card.attributes?.power ?? null;
+  const energy = card.attributes?.energy;
+  const might = card.attributes?.might;
+  const power = card.attributes?.power;
   const set = card.set?.label ?? card.set?.set_id ?? "";
   const plainText = card.text?.plain ?? "";
+  const flavour = card.text?.flavour ?? "";
 
   const typeLine = [supertype, type].filter(Boolean).join(" ");
   const stats = [
     energy != null ? `⚡ ${energy}` : null,
     might != null ? `⚔️ ${might}` : null,
     power != null ? `🛡️ ${power}` : null,
-  ]
-    .filter(Boolean)
-    .join("  ");
+  ].filter(Boolean).join("  ");
 
   let caption = `*${name}*`;
   if (typeLine) caption += `\n_${typeLine}_`;
   if (rarity || domain) caption += `\n${[rarity, domain].filter(Boolean).join(" · ")}`;
   if (stats) caption += `\n${stats}`;
   if (set) caption += `\n📦 ${set}`;
-  if (plainText) caption += `\n\n${plainText.slice(0, 800)}`; // Telegram caption limit
+  if (plainText) caption += `\n\n${plainText.slice(0, 600)}`;
+  if (flavour) caption += `\n\n_${flavour.slice(0, 150)}_`;
 
   return caption;
 }
 
-// ─── Extract [[Card Names]] from message text ─────────────────────────────────
+// ─── Extract [[Card Names]] from message ──────────────────────────────────────
 function extractCardNames(text) {
   const matches = [...text.matchAll(/\[\[(.+?)\]\]/g)];
   return matches.map((m) => m[1].trim()).filter(Boolean);
@@ -100,33 +90,28 @@ bot.on("message", async (msg) => {
   const text = msg.text ?? "";
   const chatId = msg.chat.id;
 
-  // Respond to /rbbot command OR any message containing [[...]]
   const isCommand = text.startsWith("/rbbot");
   const hasBrackets = /\[\[.+?\]\]/.test(text);
-
   if (!isCommand && !hasBrackets) return;
 
   const cardNames = extractCardNames(text);
   if (cardNames.length === 0) {
     if (isCommand) {
-      bot.sendMessage(
-        chatId,
-        "Usage: `/rbbot [[Card Name]]` or just type `[[Card Name]]` anywhere in your message.",
+      bot.sendMessage(chatId,
+        "Usage: `[[Card Name]]` or `/rbbot [[Card Name]]`\nExample: `[[Irelia, Fervent]]`",
         { parse_mode: "Markdown", reply_to_message_id: msg.message_id }
       );
     }
     return;
   }
 
-  // Look up each card (max 5 per message to avoid spam)
-  const toLookup = cardNames.slice(0, 5);
-
-  for (const name of toLookup) {
+  // Cap at 5 cards per message
+  for (const name of cardNames.slice(0, 5)) {
     try {
       const card = await lookupCard(name);
 
       if (!card) {
-        bot.sendMessage(chatId, `❌ Card not found: *${name}*`, {
+        await bot.sendMessage(chatId, `❌ Card not found: *${name}*\nCheck the spelling and try again.`, {
           parse_mode: "Markdown",
           reply_to_message_id: msg.message_id,
         });
@@ -150,7 +135,7 @@ bot.on("message", async (msg) => {
       }
     } catch (err) {
       console.error(`Error looking up "${name}":`, err.message);
-      bot.sendMessage(chatId, `⚠️ Error fetching *${name}*. Try again later.`, {
+      await bot.sendMessage(chatId, `⚠️ Error fetching *${name}*. Try again later.`, {
         parse_mode: "Markdown",
         reply_to_message_id: msg.message_id,
       });
