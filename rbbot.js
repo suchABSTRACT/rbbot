@@ -110,33 +110,45 @@ async function lookupCard(cardName) {
 async function lookupPrice(cardName) {
   if (!RAPIDAPI_KEY) return null;
 
-  try {
-    const query = cardName.replace(/[,]/g, "").replace(/\s+/g, "+");
-    const url = `${RAPIDAPI_BASE}/cards?search=${query}`;
-    console.log(`[price] GET ${url}`);
-    const res = await fetch(url, {
-      headers: {
-        "X-RapidAPI-Key": RAPIDAPI_KEY,
-        "X-RapidAPI-Host": RAPIDAPI_HOST,
-      },
-    });
-    const json = await res.json();
-    console.log(`[price] Response: ${JSON.stringify(json).slice(0, 400)}`);
+  const query = cardName.replace(/[,]/g, "").replace(/\s+/g, "%20");
+  const headers = {
+    "X-RapidAPI-Key": RAPIDAPI_KEY,
+    "X-RapidAPI-Host": RAPIDAPI_HOST,
+  };
 
-    // Find the best matching card by name
-    const cards = json.data ?? json.cards ?? (Array.isArray(json) ? json : null);
-    if (!cards || cards.length === 0) return null;
+  // Try multiple endpoint patterns in case one works
+  const endpoints = [
+    `https://${RAPIDAPI_HOST}/cards?search=${query}`,
+    `https://${RAPIDAPI_HOST}/api/v1/cards?search=${query}`,
+    `https://${RAPIDAPI_HOST}/cards?name=${query}`,
+    `https://${RAPIDAPI_HOST}/api/cards?search=${query}`,
+  ];
 
-    const nameLower = cardName.toLowerCase().replace(/[,]/g, "");
-    const match = cards.find((c) =>
-      c.name?.toLowerCase().replace(/[,]/g, "").includes(nameLower.split("+")[0])
-    ) ?? cards[0];
+  for (const url of endpoints) {
+    try {
+      console.log(`[price] GET ${url}`);
+      const res = await fetch(url, { headers });
+      const json = await res.json();
+      console.log(`[price] Response: ${JSON.stringify(json).slice(0, 400)}`);
 
-    return match?.prices ?? null;
-  } catch (err) {
-    console.error("[price] Error:", err.message);
-    return null;
+      // Skip if endpoint doesn't exist or not subscribed
+      if (json.message || json.detail) continue;
+
+      const cards = json.data ?? json.cards ?? json.items ?? (Array.isArray(json) ? json : null);
+      if (!cards || cards.length === 0) continue;
+
+      const nameLower = cardName.toLowerCase().replace(/[,]/g, "");
+      const match = cards.find((c) =>
+        c.name?.toLowerCase().replace(/[,]/g, "").includes(nameLower.split("%20")[0])
+      ) ?? cards[0];
+
+      if (match?.prices) return match.prices;
+    } catch (err) {
+      console.error(`[price] Error on ${url}:`, err.message);
+    }
   }
+
+  return null;
 }
 
 // ─── Format Price Line ────────────────────────────────────────────────────────
