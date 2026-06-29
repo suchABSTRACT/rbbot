@@ -3,7 +3,7 @@
  *
  * Setup:
  *   1. npm install node-telegram-bot-api node-fetch
- *   2. Set BOT_TOKEN as an environment variable in Railway.
+ *   2. Set BOT_TOKEN and RAPIDAPI_KEY as environment variables in Railway.
  *   3. node rbbot.js
  *
  * Usage in Telegram group:
@@ -17,7 +17,10 @@ const fetch = require("node-fetch");
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const BOT_TOKEN = process.env.BOT_TOKEN || "YOUR_BOT_TOKEN_HERE";
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
 const RIFTCODEX_BASE = "https://api.riftcodex.com";
+const RAPIDAPI_HOST = "riftbound-prices-api.p.rapidapi.com";
+const RAPIDAPI_BASE = `https://${RAPIDAPI_HOST}/api/v1`;
 
 // ─── Bot Setup ────────────────────────────────────────────────────────────────
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -28,7 +31,33 @@ function esc(text) {
   return String(text).replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, "\\$&");
 }
 
-// ─── Card Lookup ──────────────────────────────────────────────────────────────
+// ─── Replace Riftbound symbol tags with emoji ─────────────────────────────────
+function replaceSymbols(text) {
+  if (!text) return "";
+  return text
+    .replace(/:rb_rune_rainbow:/gi, "🔮")
+    .replace(/:rb_rune_fury:/gi,    "🔴")
+    .replace(/:rb_rune_calm:/gi,    "🔵")
+    .replace(/:rb_rune_mind:/gi,    "🟣")
+    .replace(/:rb_rune_body:/gi,    "🟢")
+    .replace(/:rb_rune_chaos:/gi,   "🟤")
+    .replace(/:rb_rune_order:/gi,   "🟡")
+    .replace(/:rb_might:/gi,        "⚔️")
+    .replace(/:rb_energy:/gi,       "⚡")
+    .replace(/:rb_power:/gi,        "💎")
+    .replace(/:rb_[a-z_]+:/gi, "");
+}
+
+// ─── Strip HTML tags from rich text ──────────────────────────────────────────
+function stripHtml(str) {
+  if (!str) return "";
+  return str
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .trim();
+}
+
+// ─── Card Lookup (Riftcodex) ──────────────────────────────────────────────────
 async function lookupCard(cardName) {
   const name = cardName.trim();
   const queryParam = name.replace(/[,]/g, "").replace(/\s+/g, "+");
@@ -77,17 +106,68 @@ async function lookupCard(cardName) {
   return null;
 }
 
-// ─── Strip HTML tags from rich text ──────────────────────────────────────────
-function stripHtml(str) {
-  if (!str) return "";
-  return str
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .trim();
+// ─── Price Lookup (TCGGO / RapidAPI) ─────────────────────────────────────────
+async function lookupPrice(cardName) {
+  if (!RAPIDAPI_KEY) return null;
+
+  try {
+    const query = cardName.replace(/[,]/g, "").replace(/\s+/g, "+");
+    const url = `${RAPIDAPI_BASE}/cards?search=${query}`;
+    console.log(`[price] GET ${url}`);
+    const res = await fetch(url, {
+      headers: {
+        "X-RapidAPI-Key": RAPIDAPI_KEY,
+        "X-RapidAPI-Host": RAPIDAPI_HOST,
+      },
+    });
+    const json = await res.json();
+    console.log(`[price] Response: ${JSON.stringify(json).slice(0, 400)}`);
+
+    // Find the best matching card by name
+    const cards = json.data ?? json.cards ?? (Array.isArray(json) ? json : null);
+    if (!cards || cards.length === 0) return null;
+
+    const nameLower = cardName.toLowerCase().replace(/[,]/g, "");
+    const match = cards.find((c) =>
+      c.name?.toLowerCase().replace(/[,]/g, "").includes(nameLower.split("+")[0])
+    ) ?? cards[0];
+
+    return match?.prices ?? null;
+  } catch (err) {
+    console.error("[price] Error:", err.message);
+    return null;
+  }
+}
+
+// ─── Format Price Line ────────────────────────────────────────────────────────
+function formatPrices(prices) {
+  if (!prices) return null;
+
+  const lines = [];
+
+  const tcgMarket = prices?.tcgplayer?.market;
+  const tcgLow = prices?.tcgplayer?.low;
+  if (tcgMarket != null || tcgLow != null) {
+    let line = "💵 TCGPlayer:";
+    if (tcgMarket != null) line += ` $${tcgMarket.toFixed(2)}`;
+    if (tcgLow != null) line += ` \\(low $${tcgLow.toFixed(2)}\\)`;
+    lines.push(line);
+  }
+
+  const cmTrend = prices?.cardmarket?.trend;
+  const cmLow = prices?.cardmarket?.low;
+  if (cmTrend != null || cmLow != null) {
+    let line = "🌍 Cardmarket:";
+    if (cmTrend != null) line += ` €${cmTrend.toFixed(2)}`;
+    if (cmLow != null) line += ` \\(low €${cmLow.toFixed(2)}\\)`;
+    lines.push(line);
+  }
+
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 // ─── Build Caption (MarkdownV2) ───────────────────────────────────────────────
-function buildCaption(card) {
+function buildCaption(card, prices) {
   const name = card.name ?? "Unknown";
   const type = card.classification?.type ?? "";
   const supertype = card.classification?.supertype ?? "";
@@ -98,9 +178,10 @@ function buildCaption(card) {
   const power = card.attributes?.power;
   const set = card.set?.label ?? card.set?.set_id ?? "";
 
-  // Prefer plain text; fall back to stripping rich HTML
-  const rawText = card.text?.plain ?? stripHtml(card.text?.rich) ?? "";
-  const flavour = card.text?.flavour ?? "";
+  const rawText = card.text?.plain
+    ? replaceSymbols(card.text.plain)
+    : replaceSymbols(stripHtml(card.text?.rich ?? ""));
+  const flavour = replaceSymbols(card.text?.flavour ?? "");
 
   const typeLine = [supertype, type].filter(Boolean).join(" ");
   const stats = [
@@ -109,7 +190,6 @@ function buildCaption(card) {
     power != null ? `🛡️ ${power}` : null,
   ].filter(Boolean).join("  ");
 
-  // Build caption using MarkdownV2 — everything must be escaped
   let caption = `*${esc(name)}*`;
   if (typeLine) caption += `\n_${esc(typeLine)}_`;
   if (rarity || domain) caption += `\n${esc([rarity, domain].filter(Boolean).join(" · "))}`;
@@ -117,6 +197,10 @@ function buildCaption(card) {
   if (set) caption += `\n📦 ${esc(set)}`;
   if (rawText) caption += `\n\n${esc(rawText.slice(0, 500))}`;
   if (flavour) caption += `\n\n_${esc(flavour.slice(0, 150))}_`;
+
+  // Pricing section
+  const priceLines = formatPrices(prices);
+  if (priceLines) caption += `\n\n${priceLines}`;
 
   return caption;
 }
@@ -149,7 +233,11 @@ bot.on("message", async (msg) => {
 
   for (const name of cardNames.slice(0, 5)) {
     try {
-      const card = await lookupCard(name);
+      // Fetch card data and prices in parallel
+      const [card, prices] = await Promise.all([
+        lookupCard(name),
+        lookupPrice(name),
+      ]);
 
       if (!card) {
         await bot.sendMessage(chatId,
@@ -160,7 +248,7 @@ bot.on("message", async (msg) => {
       }
 
       const imageUrl = card.media?.image_url;
-      const caption = buildCaption(card);
+      const caption = buildCaption(card, prices);
 
       if (imageUrl) {
         await bot.sendPhoto(chatId, imageUrl, {
