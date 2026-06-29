@@ -1,15 +1,5 @@
 /**
  * Riftbound Telegram Bot — rbbot
- *
- * Setup:
- *   1. npm install node-telegram-bot-api node-fetch
- *   2. Set BOT_TOKEN and RAPIDAPI_KEY as environment variables in Railway.
- *   3. node rbbot.js
- *
- * Usage in Telegram group:
- *   [[Irelia, Fervent]]
- *   [[Master Yi]] [[Jinx]]   ← multiple cards in one message
- *   /rbbot [[Irelia, Fervent]]
  */
 
 const TelegramBot = require("node-telegram-bot-api");
@@ -20,7 +10,6 @@ const BOT_TOKEN = process.env.BOT_TOKEN || "YOUR_BOT_TOKEN_HERE";
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
 const RIFTCODEX_BASE = "https://api.riftcodex.com";
 const RAPIDAPI_HOST = "riftbound-prices-api.p.rapidapi.com";
-const RAPIDAPI_BASE = `https://${RAPIDAPI_HOST}/api/v1`;
 
 // ─── Bot Setup ────────────────────────────────────────────────────────────────
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -106,52 +95,30 @@ async function lookupCard(cardName) {
   return null;
 }
 
-// ─── Price Lookup (TCGGO / RapidAPI) ─────────────────────────────────────────
-async function lookupPrice(cardName) {
-  if (!RAPIDAPI_KEY) return null;
+// ─── Price Lookup by TCGPlayer ID (TCGGO / RapidAPI) ─────────────────────────
+async function lookupPrice(tcgplayerId) {
+  if (!RAPIDAPI_KEY || !tcgplayerId) return null;
 
-  const query = cardName.replace(/[,]/g, "").replace(/\s+/g, "%20");
   const headers = {
     "X-RapidAPI-Key": RAPIDAPI_KEY,
     "X-RapidAPI-Host": RAPIDAPI_HOST,
   };
 
-  // Try multiple endpoint patterns in case one works
-  const endpoints = [
-    `https://${RAPIDAPI_HOST}/cards?search=${query}`,
-    `https://${RAPIDAPI_HOST}/api/v1/cards?search=${query}`,
-    `https://${RAPIDAPI_HOST}/cards?name=${query}`,
-    `https://${RAPIDAPI_HOST}/api/cards?search=${query}`,
-  ];
-
-  for (const url of endpoints) {
-    try {
-      console.log(`[price] GET ${url}`);
-      const res = await fetch(url, { headers });
-      const json = await res.json();
-      console.log(`[price] Response: ${JSON.stringify(json).slice(0, 400)}`);
-
-      // Skip if endpoint doesn't exist or not subscribed
-      if (json.message || json.detail) continue;
-
-      const cards = json.data ?? json.cards ?? json.items ?? (Array.isArray(json) ? json : null);
-      if (!cards || cards.length === 0) continue;
-
-      const nameLower = cardName.toLowerCase().replace(/[,]/g, "");
-      const match = cards.find((c) =>
-        c.name?.toLowerCase().replace(/[,]/g, "").includes(nameLower.split("%20")[0])
-      ) ?? cards[0];
-
-      if (match?.prices) return match.prices;
-    } catch (err) {
-      console.error(`[price] Error on ${url}:`, err.message);
-    }
+  try {
+    const url = `https://${RAPIDAPI_HOST}/cards/${tcgplayerId}`;
+    console.log(`[price] GET ${url}`);
+    const res = await fetch(url, { headers });
+    const json = await res.json();
+    console.log(`[price] Response: ${JSON.stringify(json).slice(0, 400)}`);
+    if (json.prices) return json.prices;
+  } catch (err) {
+    console.error(`[price] Error:`, err.message);
   }
 
   return null;
 }
 
-// ─── Format Price Line ────────────────────────────────────────────────────────
+// ─── Format Price Lines ───────────────────────────────────────────────────────
 function formatPrices(prices) {
   if (!prices) return null;
 
@@ -210,7 +177,6 @@ function buildCaption(card, prices) {
   if (rawText) caption += `\n\n${esc(rawText.slice(0, 500))}`;
   if (flavour) caption += `\n\n_${esc(flavour.slice(0, 150))}_`;
 
-  // Pricing section
   const priceLines = formatPrices(prices);
   if (priceLines) caption += `\n\n${priceLines}`;
 
@@ -245,11 +211,8 @@ bot.on("message", async (msg) => {
 
   for (const name of cardNames.slice(0, 5)) {
     try {
-      // Fetch card data and prices in parallel
-      const [card, prices] = await Promise.all([
-        lookupCard(name),
-        lookupPrice(name),
-      ]);
+      // First get the card data (we need the tcgplayer_id for pricing)
+      const card = await lookupCard(name);
 
       if (!card) {
         await bot.sendMessage(chatId,
@@ -258,6 +221,9 @@ bot.on("message", async (msg) => {
         );
         continue;
       }
+
+      // Use the tcgplayer_id from Riftcodex to fetch price
+      const prices = await lookupPrice(card.tcgplayer_id);
 
       const imageUrl = card.media?.image_url;
       const caption = buildCaption(card, prices);
