@@ -105,7 +105,7 @@ async function getExchangeRates() {
   }
 
   try {
-    const url = "https://api.frankfurter.dev/v2/latest?base=EUR&quotes=USD,SGD";
+    const url = "https://api.frankfurter.dev/v2/EUR?symbols=USD,SGD";
     console.log(`[fx] GET ${url}`);
     const res = await fetch(url);
     const json = await res.json();
@@ -152,6 +152,11 @@ async function lookupPrice(cardName) {
   }
 }
 
+// ─── Format a number as MarkdownV2-safe currency string ──────────────────────
+function fmtMoney(amount, symbol) {
+  return esc(`${symbol}${amount.toFixed(2)}`);
+}
+
 // ─── Format Price Lines ───────────────────────────────────────────────────────
 function formatPrices(prices, rates) {
   if (!prices) return null;
@@ -165,16 +170,16 @@ function formatPrices(prices, rates) {
     const avg30d = cm["30d_average"];
 
     if (low != null) {
-      let line = `🌍 Cardmarket: €${low.toFixed(2)} \\(low\\)`;
-      if (rates?.USD) line += ` · $${(low * rates.USD).toFixed(2)}`;
-      if (rates?.SGD) line += ` · S$${(low * rates.SGD).toFixed(2)}`;
+      let line = `🌍 Cardmarket: ${fmtMoney(low, "€")} \\(low\\)`;
+      if (rates?.USD) line += ` · ${fmtMoney(low * rates.USD, "$")}`;
+      if (rates?.SGD) line += ` · ${fmtMoney(low * rates.SGD, "S$")}`;
       lines.push(line);
     }
     if (avg7d != null) {
-      lines.push(`📈 7d avg: €${avg7d.toFixed(2)}`);
+      lines.push(`📈 7d avg: ${fmtMoney(avg7d, "€")}`);
     }
     if (avg30d != null) {
-      lines.push(`📊 30d avg: €${avg30d.toFixed(2)}`);
+      lines.push(`📊 30d avg: ${fmtMoney(avg30d, "€")}`);
     }
   }
 
@@ -184,8 +189,8 @@ function formatPrices(prices, rates) {
     const tcgLow = tcg.low;
     if (tcgMarket != null || tcgLow != null) {
       let line = "💵 TCGPlayer:";
-      if (tcgMarket != null) line += ` $${tcgMarket.toFixed(2)}`;
-      if (tcgLow != null) line += ` \\(low $${tcgLow.toFixed(2)}\\)`;
+      if (tcgMarket != null) line += ` ${fmtMoney(tcgMarket, "$")}`;
+      if (tcgLow != null) line += ` \\(low ${fmtMoney(tcgLow, "$")}\\)`;
       lines.push(line);
     }
   }
