@@ -95,27 +95,36 @@ async function lookupCard(cardName) {
   return null;
 }
 
-// ─── Price Lookup by TCGPlayer ID (TCGGO / RapidAPI) ─────────────────────────
-async function lookupPrice(tcgplayerId) {
-  if (!RAPIDAPI_KEY || !tcgplayerId) return null;
+// ─── Price Lookup by Card Name (TCGGO / RapidAPI) ─────────────────────────────
+async function lookupPrice(cardName) {
+  if (!RAPIDAPI_KEY) return null;
 
   const headers = {
     "X-RapidAPI-Key": RAPIDAPI_KEY,
     "X-RapidAPI-Host": RAPIDAPI_HOST,
   };
 
+  // TCGGO's own IDs are different from TCGPlayer IDs, so we must search by name
   try {
-    const url = `https://${RAPIDAPI_HOST}/cards/${tcgplayerId}`;
+    const query = encodeURIComponent(cardName.replace(/[,]/g, "").trim());
+    const url = `https://${RAPIDAPI_HOST}/api/v1/cards?search=${query}`;
     console.log(`[price] GET ${url}`);
     const res = await fetch(url, { headers });
     const json = await res.json();
     console.log(`[price] Response: ${JSON.stringify(json).slice(0, 400)}`);
-    if (json.prices) return json.prices;
+
+    const cards = json.data ?? json.cards ?? json.items ?? (Array.isArray(json) ? json : null);
+    if (!cards || cards.length === 0) return null;
+
+    // Match against the base name (before " - " or "," since TCGGO uses short names like "Jinx")
+    const baseName = cardName.split(/[-,]/)[0].trim().toLowerCase();
+    const match = cards.find((c) => c.name?.toLowerCase().includes(baseName)) ?? cards[0];
+
+    return match?.prices ?? null;
   } catch (err) {
     console.error(`[price] Error:`, err.message);
+    return null;
   }
-
-  return null;
 }
 
 // ─── Format Price Lines ───────────────────────────────────────────────────────
@@ -222,8 +231,8 @@ bot.on("message", async (msg) => {
         continue;
       }
 
-      // Use the tcgplayer_id from Riftcodex to fetch price
-      const prices = await lookupPrice(card.tcgplayer_id);
+      // Search pricing API by name (TCGGO uses its own internal IDs, not TCGPlayer IDs)
+      const prices = await lookupPrice(card.name);
 
       const imageUrl = card.media?.image_url;
       const caption = buildCaption(card, prices);
