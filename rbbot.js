@@ -95,6 +95,31 @@ async function lookupCard(cardName) {
   return null;
 }
 
+// ─── Currency Conversion (Frankfurter, EUR → USD/SGD) ────────────────────────
+let exchangeRatesCache = { rates: null, fetchedAt: 0 };
+
+async function getExchangeRates() {
+  const ONE_HOUR = 60 * 60 * 1000;
+  if (exchangeRatesCache.rates && Date.now() - exchangeRatesCache.fetchedAt < ONE_HOUR) {
+    return exchangeRatesCache.rates;
+  }
+
+  try {
+    const url = "https://api.frankfurter.dev/v2/latest?base=EUR&quotes=USD,SGD";
+    console.log(`[fx] GET ${url}`);
+    const res = await fetch(url);
+    const json = await res.json();
+    console.log(`[fx] Response: ${JSON.stringify(json).slice(0, 300)}`);
+    if (json.rates) {
+      exchangeRatesCache = { rates: json.rates, fetchedAt: Date.now() };
+      return json.rates;
+    }
+  } catch (err) {
+    console.error("[fx] Error:", err.message);
+  }
+  return null;
+}
+
 // ─── Price Lookup by Card Name (TCGGO / RapidAPI) ─────────────────────────────
 async function lookupPrice(cardName) {
   if (!RAPIDAPI_KEY) return null;
@@ -104,21 +129,21 @@ async function lookupPrice(cardName) {
     "X-RapidAPI-Host": RAPIDAPI_HOST,
   };
 
-  // TCGGO's own IDs are different from TCGPlayer IDs, so we must search by name
   try {
-    const query = encodeURIComponent(cardName.replace(/[,]/g, "").trim());
-    const url = `https://${RAPIDAPI_HOST}/api/v1/cards?search=${query}`;
+    const query = encodeURIComponent(cardName.trim());
+    const url = `https://${RAPIDAPI_HOST}/cards?search=${query}`;
     console.log(`[price] GET ${url}`);
     const res = await fetch(url, { headers });
     const json = await res.json();
     console.log(`[price] Response: ${JSON.stringify(json).slice(0, 400)}`);
 
-    const cards = json.data ?? json.cards ?? json.items ?? (Array.isArray(json) ? json : null);
-    if (!cards || cards.length === 0) return null;
+    // Response can be a single object under "data", or a list — handle both
+    const payload = json.data ?? json;
+    const cards = Array.isArray(payload) ? payload : [payload];
+    if (!cards || cards.length === 0 || !cards[0]) return null;
 
-    // Match against the base name (before " - " or "," since TCGGO uses short names like "Jinx")
     const baseName = cardName.split(/[-,]/)[0].trim().toLowerCase();
-    const match = cards.find((c) => c.name?.toLowerCase().includes(baseName)) ?? cards[0];
+    const match = cards.find((c) => c?.name?.toLowerCase().includes(baseName)) ?? cards[0];
 
     return match?.prices ?? null;
   } catch (err) {
@@ -128,34 +153,48 @@ async function lookupPrice(cardName) {
 }
 
 // ─── Format Price Lines ───────────────────────────────────────────────────────
-function formatPrices(prices) {
+function formatPrices(prices, rates) {
   if (!prices) return null;
 
   const lines = [];
+  const cm = prices?.cardmarket;
 
-  const tcgMarket = prices?.tcgplayer?.market;
-  const tcgLow = prices?.tcgplayer?.low;
-  if (tcgMarket != null || tcgLow != null) {
-    let line = "💵 TCGPlayer:";
-    if (tcgMarket != null) line += ` $${tcgMarket.toFixed(2)}`;
-    if (tcgLow != null) line += ` \\(low $${tcgLow.toFixed(2)}\\)`;
-    lines.push(line);
+  if (cm) {
+    const low = cm.lowest_near_mint;
+    const avg7d = cm["7d_average"];
+    const avg30d = cm["30d_average"];
+
+    if (low != null) {
+      let line = `🌍 Cardmarket: €${low.toFixed(2)} \\(low\\)`;
+      if (rates?.USD) line += ` · $${(low * rates.USD).toFixed(2)}`;
+      if (rates?.SGD) line += ` · S$${(low * rates.SGD).toFixed(2)}`;
+      lines.push(line);
+    }
+    if (avg7d != null) {
+      lines.push(`📈 7d avg: €${avg7d.toFixed(2)}`);
+    }
+    if (avg30d != null) {
+      lines.push(`📊 30d avg: €${avg30d.toFixed(2)}`);
+    }
   }
 
-  const cmTrend = prices?.cardmarket?.trend;
-  const cmLow = prices?.cardmarket?.low;
-  if (cmTrend != null || cmLow != null) {
-    let line = "🌍 Cardmarket:";
-    if (cmTrend != null) line += ` €${cmTrend.toFixed(2)}`;
-    if (cmLow != null) line += ` \\(low €${cmLow.toFixed(2)}\\)`;
-    lines.push(line);
+  const tcg = prices?.tcgplayer;
+  if (tcg) {
+    const tcgMarket = tcg.market;
+    const tcgLow = tcg.low;
+    if (tcgMarket != null || tcgLow != null) {
+      let line = "💵 TCGPlayer:";
+      if (tcgMarket != null) line += ` $${tcgMarket.toFixed(2)}`;
+      if (tcgLow != null) line += ` \\(low $${tcgLow.toFixed(2)}\\)`;
+      lines.push(line);
+    }
   }
 
   return lines.length > 0 ? lines.join("\n") : null;
 }
 
 // ─── Build Caption (MarkdownV2) ───────────────────────────────────────────────
-function buildCaption(card, prices) {
+function buildCaption(card, prices, rates) {
   const name = card.name ?? "Unknown";
   const type = card.classification?.type ?? "";
   const supertype = card.classification?.supertype ?? "";
@@ -186,7 +225,7 @@ function buildCaption(card, prices) {
   if (rawText) caption += `\n\n${esc(rawText.slice(0, 500))}`;
   if (flavour) caption += `\n\n_${esc(flavour.slice(0, 150))}_`;
 
-  const priceLines = formatPrices(prices);
+  const priceLines = formatPrices(prices, rates);
   if (priceLines) caption += `\n\n${priceLines}`;
 
   return caption;
@@ -232,10 +271,13 @@ bot.on("message", async (msg) => {
       }
 
       // Search pricing API by name (TCGGO uses its own internal IDs, not TCGPlayer IDs)
-      const prices = await lookupPrice(card.name);
+      const [prices, rates] = await Promise.all([
+        lookupPrice(card.name),
+        getExchangeRates(),
+      ]);
 
       const imageUrl = card.media?.image_url;
-      const caption = buildCaption(card, prices);
+      const caption = buildCaption(card, prices, rates);
 
       if (imageUrl) {
         await bot.sendPhoto(chatId, imageUrl, {
