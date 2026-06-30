@@ -105,7 +105,7 @@ async function getExchangeRates() {
   }
 
   try {
-    const url = "https://api.frankfurter.dev/v2/EUR?symbols=USD,SGD";
+    const url = "https://api.frankfurter.dev/v1/latest?base=EUR&symbols=USD,SGD";
     console.log(`[fx] GET ${url}`);
     const res = await fetch(url);
     const json = await res.json();
