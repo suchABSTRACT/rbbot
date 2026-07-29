@@ -306,4 +306,12 @@ bot.on("message", async (msg) => {
   }
 });
 
-console.log("✅ RBBot is running. Listening for [[card lookups]]...");
+// ─── Minimal HTTP server (required for Render free tier) ─────────────────────
+const http = require("http");
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("RBBot is running!");
+}).listen(PORT, () => {
+  console.log(`✅ RBBot is running on port ${PORT}. Listening for [[card lookups]]...`);
+});
