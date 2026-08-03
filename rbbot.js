@@ -276,29 +276,19 @@ async function getErrata() {
 
     console.log(`[errata] Raw text sample (chars 2000-2500):\n${text.slice(2000, 2500)}`);
 
-    // Format after stripping HTML is: "Card NameOld: text New: text"
-    // Card name and Old/New are jammed together with no separator
-    // Use regex to split on the pattern: anything followed by "Old:" ... "New:" ...
-    const pattern = /(.+?)Old:\s*([\s\S]+?)\s*New:\s*([\s\S]+?)(?=.{2,}Old:|$)/g;
+    // Extract card slugs from href links: /cards/tianna-crownguard/
+    // Then find the Old/New text that follows each card link
+    const slugPattern = /href="\/cards\/([^"]+)\/"[^>]*>([^<]+)<\/a>\s*Old:\s*([\s\S]+?)\s*New:\s*([\s\S]+?)(?=<a href="\/cards\/|$)/g;
     let match;
 
-    while ((match = pattern.exec(text)) !== null) {
-      // Card name is the last "word group" before Old: — extract it
-      const beforeOld = match[1];
-      // The card name is at the end of beforeOld, after any previous New: text
-      const cardNameMatch = beforeOld.match(/([A-Z][^\n]+?)$/);
-      if (!cardNameMatch) continue;
-
-      const cardName = cardNameMatch[1].trim().toLowerCase()
-        .replace(/[^a-z0-9\s',!-]/g, "")
-        .trim();
-
-      if (!cardName || cardName.length > 60) continue;
-
-      errata[cardName] = {
-        old: match[2].trim(),
-        new: match[3].trim(),
-      };
+    // Work on raw HTML before stripping for accurate slug extraction
+    while ((match = slugPattern.exec(html)) !== null) {
+      const cardName = match[2].trim().toLowerCase();
+      const oldRaw = match[3].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
+      const newRaw = match[4].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
+      if (cardName && oldRaw && newRaw) {
+        errata[cardName] = { old: oldRaw, new: newRaw };
+      }
     }
 
     console.log(`[errata] Loaded ${Object.keys(errata).length} errata entries`);
