@@ -276,19 +276,29 @@ async function getErrata() {
 
     console.log(`[errata] Raw text sample (chars 2000-2500):\n${text.slice(2000, 2500)}`);
 
-    // Extract card slugs from href links: /cards/tianna-crownguard/
-    // Then find the Old/New text that follows each card link
-    const slugPattern = /href="\/cards\/([^"]+)\/"[^>]*>([^<]+)<\/a>\s*Old:\s*([\s\S]+?)\s*New:\s*([\s\S]+?)(?=<a href="\/cards\/|$)/g;
-    let match;
+    // The raw text after stripping looks like:
+    // "...previous new textCard NameOld: old text New: new textNext Card..."
+    // Split the whole text on "Old:" to get chunks, then extract card name and new text from each
+    const chunks = text.split("Old:");
+    for (let i = 1; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const before = chunks[i - 1];
 
-    // Work on raw HTML before stripping for accurate slug extraction
-    while ((match = slugPattern.exec(html)) !== null) {
-      const cardName = match[2].trim().toLowerCase();
-      const oldRaw = match[3].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
-      const newRaw = match[4].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
-      if (cardName && oldRaw && newRaw) {
-        errata[cardName] = { old: oldRaw, new: newRaw };
-      }
+      // New text ends at the next card name (capital letter sequence before next "Old:")
+      const newMatch = chunk.match(/^([\s\S]+?)\s*New:\s*([\s\S]+?)(?=[A-Z][a-z].*Old:|$)/);
+      if (!newMatch) continue;
+
+      const oldText = newMatch[1].trim();
+      const newText = newMatch[2].trim();
+
+      // Card name is at the END of the previous chunk — last capitalized phrase
+      const nameMatch = before.match(/([A-Z][A-Za-z0-9',!.\-\s]+?)\s*$/);
+      if (!nameMatch) continue;
+
+      const cardName = nameMatch[1].trim().toLowerCase();
+      if (!cardName || cardName.length > 60 || cardName.includes("http")) continue;
+
+      errata[cardName] = { old: oldText, new: newText };
     }
 
     console.log(`[errata] Loaded ${Object.keys(errata).length} errata entries`);
