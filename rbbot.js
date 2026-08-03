@@ -264,7 +264,6 @@ bot.on("message", async (msg) => {
 
   for (const name of cardNames.slice(0, 5)) {
     try {
-      // First get the card data (we need the tcgplayer_id for pricing)
       const card = await lookupCard(name);
 
       if (!card) {
@@ -275,7 +274,6 @@ bot.on("message", async (msg) => {
         continue;
       }
 
-      // Search pricing API by name (TCGGO uses its own internal IDs, not TCGPlayer IDs)
       const [prices, rates] = await Promise.all([
         lookupPrice(card.name),
         getExchangeRates(),
@@ -284,24 +282,34 @@ bot.on("message", async (msg) => {
       const imageUrl = card.media?.image_url;
       const caption = buildCaption(card, prices, rates);
 
-      if (imageUrl) {
-        await bot.sendPhoto(chatId, imageUrl, {
-          caption,
-          parse_mode: "MarkdownV2",
-          reply_to_message_id: msg.message_id,
-        });
-      } else {
-        await bot.sendMessage(chatId, caption, {
-          parse_mode: "MarkdownV2",
-          reply_to_message_id: msg.message_id,
-        });
+      try {
+        if (imageUrl) {
+          await bot.sendPhoto(chatId, imageUrl, {
+            caption,
+            parse_mode: "MarkdownV2",
+            reply_to_message_id: msg.message_id,
+          });
+        } else {
+          await bot.sendMessage(chatId, caption, {
+            parse_mode: "MarkdownV2",
+            reply_to_message_id: msg.message_id,
+          });
+        }
+      } catch (sendErr) {
+        console.error(`[send_error] "${name}": ${sendErr.message}`);
+        console.error(`[caption_dump] ${caption}`);
+        // Fallback: send as plain text so user still gets something
+        await bot.sendMessage(chatId,
+          `Found: ${card.name} — but had a formatting error displaying it\.`,
+          { parse_mode: "MarkdownV2", reply_to_message_id: msg.message_id }
+        ).catch(() => {});
       }
     } catch (err) {
       console.error(`Error looking up "${name}":`, err.message);
       await bot.sendMessage(chatId,
         `⚠️ Error fetching *${esc(name)}*\. Try again later\.`,
         { parse_mode: "MarkdownV2", reply_to_message_id: msg.message_id }
-      );
+      ).catch(() => {});
     }
   }
 });
