@@ -274,6 +274,8 @@ async function getErrata() {
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'");
 
+    console.log(`[errata] Raw text sample (chars 2000-2500):\n${text.slice(2000, 2500)}`);
+
     // Each entry looks like:
     // Card Name
     // **Old:** some text **New:** some text
