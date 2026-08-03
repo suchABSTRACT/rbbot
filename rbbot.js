@@ -233,16 +233,16 @@ function buildCaption(card, prices, rates, errata) {
   if (rawText) caption += `\n\n${esc(rawText.slice(0, 500))}`;
   if (flavour) caption += `\n\n_${esc(flavour.slice(0, 150))}_`;
 
-  const priceLines = formatPrices(prices, rates);
-  if (priceLines) caption += `\n\n${priceLines}`;
-
-  // Errata section — shown prominently at the bottom
+  // Errata section — shown after card text, before prices
   if (errata) {
     caption += `\n\n⚠️ *ERRATA*`;
     caption += `\n~${esc(errata.old.slice(0, 300))}~`;
     caption += `\n\n✅ *Corrected Text:*`;
     caption += `\n*${esc(errata.new.slice(0, 300))}*`;
   }
+
+  const priceLines = formatPrices(prices, rates);
+  if (priceLines) caption += `\n\n${priceLines}`;
 
   return caption;
 }
