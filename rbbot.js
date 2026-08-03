@@ -276,19 +276,26 @@ async function getErrata() {
 
     console.log(`[errata] Raw text sample (chars 2000-2500):\n${text.slice(2000, 2500)}`);
 
-    // Each entry looks like:
-    // Card Name
-    // **Old:** some text **New:** some text
-    // Use regex to find all Old/New pairs with the card name on the preceding line
-    const pattern = /^(.+)\n\*\*Old:\*\*\s*([\s\S]+?)\s*\*\*New:\*\*\s*([\s\S]+?)(?=\n\n|\n[A-Z#]|$)/gm;
+    // Format after stripping HTML is: "Card NameOld: text New: text"
+    // Card name and Old/New are jammed together with no separator
+    // Use regex to split on the pattern: anything followed by "Old:" ... "New:" ...
+    const pattern = /(.+?)Old:\s*([\s\S]+?)\s*New:\s*([\s\S]+?)(?=.{2,}Old:|$)/g;
     let match;
 
     while ((match = pattern.exec(text)) !== null) {
-      const cardName = match[1].trim().toLowerCase();
-      // Skip section headers like "## Origins"
-      if (cardName.startsWith("#") || cardName.startsWith("[") === false && cardName.length > 50) continue;
-      const cleanName = cardName.replace(/^#+ /, "").trim();
-      errata[cleanName] = {
+      // Card name is the last "word group" before Old: — extract it
+      const beforeOld = match[1];
+      // The card name is at the end of beforeOld, after any previous New: text
+      const cardNameMatch = beforeOld.match(/([A-Z][^\n]+?)$/);
+      if (!cardNameMatch) continue;
+
+      const cardName = cardNameMatch[1].trim().toLowerCase()
+        .replace(/[^a-z0-9\s',!-]/g, "")
+        .trim();
+
+      if (!cardName || cardName.length > 60) continue;
+
+      errata[cardName] = {
         old: match[2].trim(),
         new: match[3].trim(),
       };
