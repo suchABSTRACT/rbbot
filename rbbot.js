@@ -11,7 +11,12 @@ const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY || "";
 const RIFTCODEX_BASE = "https://api.riftcodex.com";
 const RAPIDAPI_HOST = "riftbound-prices-api.p.rapidapi.com";
 
-// ─── Bot Setup ────────────────────────────────────────────────────────────────
+const RIFTCODEX_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (compatible; RBBot/1.0; Telegram card lookup bot)",
+  "Accept": "application/json",
+};
+
+
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // ─── Escape special characters for Telegram MarkdownV2 ───────────────────────
@@ -55,7 +60,7 @@ async function lookupCard(cardName) {
   try {
     const url = `${RIFTCODEX_BASE}/cards/name?exact=${queryParam}`;
     console.log(`[exact] GET ${url}`);
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: RIFTCODEX_HEADERS });
     const json = await res.json();
     console.log(`[exact] Response: ${JSON.stringify(json).slice(0, 400)}`);
     const cards = json.items ?? json.data ?? (Array.isArray(json) ? json : null);
@@ -69,7 +74,7 @@ async function lookupCard(cardName) {
   try {
     const url = `${RIFTCODEX_BASE}/cards/name?fuzzy=${queryParam}`;
     console.log(`[fuzzy] GET ${url}`);
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: RIFTCODEX_HEADERS });
     const json = await res.json();
     console.log(`[fuzzy] Response: ${JSON.stringify(json).slice(0, 400)}`);
     const cards = json.items ?? json.data ?? (Array.isArray(json) ? json : null);
@@ -83,9 +88,7 @@ async function lookupCard(cardName) {
   try {
     const url = `${RIFTCODEX_BASE}/cards/search?query=${queryParam}`;
     console.log(`[search] GET ${url}`);
-    const res = await fetch(url);
-    const json = await res.json();
-    console.log(`[search] Response: ${JSON.stringify(json).slice(0, 400)}`);
+    const res = await fetch(url, { headers: RIFTCODEX_HEADERS });
     const cards = json.items ?? json.data ?? (Array.isArray(json) ? json : null);
     if (cards && cards.length > 0) return cards[0];
   } catch (err) {
