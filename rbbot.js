@@ -202,7 +202,7 @@ function formatPrices(prices, rates) {
 }
 
 // ─── Build Caption (MarkdownV2) ───────────────────────────────────────────────
-function buildCaption(card, prices, rates) {
+function buildCaption(card, prices, rates, errata) {
   const name = card.name ?? "Unknown";
   const type = card.classification?.type ?? "";
   const supertype = card.classification?.supertype ?? "";
@@ -236,10 +236,75 @@ function buildCaption(card, prices, rates) {
   const priceLines = formatPrices(prices, rates);
   if (priceLines) caption += `\n\n${priceLines}`;
 
+  // Errata section — shown prominently at the bottom
+  if (errata) {
+    caption += `\n\n⚠️ *ERRATA*`;
+    caption += `\n~${esc(errata.old.slice(0, 300))}~`;
+    caption += `\n\n✅ *Corrected Text:*`;
+    caption += `\n*${esc(errata.new.slice(0, 300))}*`;
+  }
+
   return caption;
 }
 
-// ─── Extract [[Card Names]] from message ──────────────────────────────────────
+// ─── Errata Lookup (Rift Watcher) ────────────────────────────────────────────
+let errataCache = { data: null, fetchedAt: 0 };
+
+async function getErrata() {
+  const SIX_HOURS = 6 * 60 * 60 * 1000;
+  if (errataCache.data && Date.now() - errataCache.fetchedAt < SIX_HOURS) {
+    return errataCache.data;
+  }
+
+  try {
+    const res = await fetch("https://riftwatcher.com/rules/errata/", {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; RBBot/1.0; Telegram card lookup bot)" },
+    });
+    const html = await res.text();
+
+    // Parse each errata block: card name, old text, new text
+    const errata = {};
+    const cardBlocks = html.split(/\n(?=\[)/);
+
+    for (const block of cardBlocks) {
+      const nameMatch = block.match(/^\[([^\]]+)\]/);
+      const oldMatch = block.match(/\*\*Old:\*\*\s*(.+?)(?=\s*\*\*New:\*\*)/s);
+      const newMatch = block.match(/\*\*New:\*\*\s*(.+?)(?=\n\n|\n\[|$)/s);
+
+      if (nameMatch && oldMatch && newMatch) {
+        const cardName = nameMatch[1].trim().toLowerCase();
+        errata[cardName] = {
+          old: oldMatch[1].trim(),
+          new: newMatch[1].trim(),
+        };
+      }
+    }
+
+    console.log(`[errata] Loaded ${Object.keys(errata).length} errata entries`);
+    errataCache = { data: errata, fetchedAt: Date.now() };
+    return errata;
+  } catch (err) {
+    console.error("[errata] Error:", err.message);
+    return errataCache.data ?? {};
+  }
+}
+
+function findErrata(errata, cardName) {
+  if (!errata || !cardName) return null;
+  const name = cardName.toLowerCase();
+
+  // Try exact match first
+  if (errata[name]) return errata[name];
+
+  // Try matching just the base name (before " - ")
+  const baseName = name.split(" - ")[0].trim();
+  const match = Object.keys(errata).find((k) =>
+    k === baseName || k.startsWith(baseName)
+  );
+  return match ? errata[match] : null;
+}
+
+
 function extractCardNames(text) {
   const matches = [...text.matchAll(/\[\[(.+?)\]\]/g)];
   return matches.map((m) => m[1].trim()).filter(Boolean);
@@ -277,13 +342,15 @@ bot.on("message", async (msg) => {
         continue;
       }
 
-      const [prices, rates] = await Promise.all([
+      const [prices, rates, errataMap] = await Promise.all([
         lookupPrice(card.name),
         getExchangeRates(),
+        getErrata(),
       ]);
 
+      const cardErrata = findErrata(errataMap, card.name);
       const imageUrl = card.media?.image_url;
-      const caption = buildCaption(card, prices, rates);
+      const caption = buildCaption(card, prices, rates, cardErrata);
 
       try {
         if (imageUrl) {
