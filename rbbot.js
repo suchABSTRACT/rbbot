@@ -264,9 +264,7 @@ async function getErrata() {
 
     const errata = {};
 
-    // Each errata block looks like:
-    // <a href="...">Card Name</a>\n**Old:** ...\n**New:** ...
-    // Strip all HTML tags first, then parse
+    // Strip HTML tags to get clean markdown-like text
     const text = html
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<[^>]+>/g, "")
@@ -276,37 +274,27 @@ async function getErrata() {
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'");
 
-    // Split into lines and scan for Old/New pairs
-    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+    // Each entry looks like:
+    // Card Name
+    // **Old:** some text **New:** some text
+    // Use regex to find all Old/New pairs with the card name on the preceding line
+    const pattern = /^(.+)\n\*\*Old:\*\*\s*([\s\S]+?)\s*\*\*New:\*\*\s*([\s\S]+?)(?=\n\n|\n[A-Z#]|$)/gm;
+    let match;
 
-    let currentCard = null;
-    let oldText = null;
-    let newText = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      // Detect card name lines — they appear just before "Old:" lines
-      const oldMatch = line.match(/^Old:\s*(.+)/);
-      const newMatch = line.match(/^New:\s*(.+)/);
-
-      if (oldMatch) {
-        // Card name is the line just before "Old:"
-        currentCard = lines[i - 1]?.toLowerCase().trim() ?? null;
-        oldText = oldMatch[1].trim();
-        newText = null;
-      } else if (newMatch && currentCard) {
-        newText = newMatch[1].trim();
-        errata[currentCard] = { old: oldText, new: newText };
-        currentCard = null;
-        oldText = null;
-        newText = null;
-      }
+    while ((match = pattern.exec(text)) !== null) {
+      const cardName = match[1].trim().toLowerCase();
+      // Skip section headers like "## Origins"
+      if (cardName.startsWith("#") || cardName.startsWith("[") === false && cardName.length > 50) continue;
+      const cleanName = cardName.replace(/^#+ /, "").trim();
+      errata[cleanName] = {
+        old: match[2].trim(),
+        new: match[3].trim(),
+      };
     }
 
     console.log(`[errata] Loaded ${Object.keys(errata).length} errata entries`);
     if (Object.keys(errata).length > 0) {
-      console.log(`[errata] Sample keys: ${Object.keys(errata).slice(0, 5).join(", ")}`);
+      console.log(`[errata] Sample: ${Object.keys(errata).slice(0, 3).join(", ")}`);
     }
     errataCache = { data: errata, fetchedAt: Date.now() };
     return errata;
