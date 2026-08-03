@@ -331,3 +331,13 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log(`✅ RBBot is running on port ${PORT}. Listening for [[card lookups]]...`);
 });
+
+// ─── Keep-alive ping (prevents Render free tier from sleeping) ────────────────
+const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+if (RENDER_URL) {
+  setInterval(() => {
+    fetch(RENDER_URL)
+      .then(() => console.log(`[keep-alive] Pinged ${RENDER_URL}`))
+      .catch((err) => console.error(`[keep-alive] Ping failed: ${err.message}`));
+  }, 14 * 60 * 1000); // every 14 minutes
+}
