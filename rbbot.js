@@ -262,25 +262,52 @@ async function getErrata() {
     });
     const html = await res.text();
 
-    // Parse each errata block: card name, old text, new text
     const errata = {};
-    const cardBlocks = html.split(/\n(?=\[)/);
 
-    for (const block of cardBlocks) {
-      const nameMatch = block.match(/^\[([^\]]+)\]/);
-      const oldMatch = block.match(/\*\*Old:\*\*\s*(.+?)(?=\s*\*\*New:\*\*)/s);
-      const newMatch = block.match(/\*\*New:\*\*\s*(.+?)(?=\n\n|\n\[|$)/s);
+    // Each errata block looks like:
+    // <a href="...">Card Name</a>\n**Old:** ...\n**New:** ...
+    // Strip all HTML tags first, then parse
+    const text = html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
 
-      if (nameMatch && oldMatch && newMatch) {
-        const cardName = nameMatch[1].trim().toLowerCase();
-        errata[cardName] = {
-          old: oldMatch[1].trim(),
-          new: newMatch[1].trim(),
-        };
+    // Split into lines and scan for Old/New pairs
+    const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+
+    let currentCard = null;
+    let oldText = null;
+    let newText = null;
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      // Detect card name lines — they appear just before "Old:" lines
+      const oldMatch = line.match(/^Old:\s*(.+)/);
+      const newMatch = line.match(/^New:\s*(.+)/);
+
+      if (oldMatch) {
+        // Card name is the line just before "Old:"
+        currentCard = lines[i - 1]?.toLowerCase().trim() ?? null;
+        oldText = oldMatch[1].trim();
+        newText = null;
+      } else if (newMatch && currentCard) {
+        newText = newMatch[1].trim();
+        errata[currentCard] = { old: oldText, new: newText };
+        currentCard = null;
+        oldText = null;
+        newText = null;
       }
     }
 
     console.log(`[errata] Loaded ${Object.keys(errata).length} errata entries`);
+    if (Object.keys(errata).length > 0) {
+      console.log(`[errata] Sample keys: ${Object.keys(errata).slice(0, 5).join(", ")}`);
+    }
     errataCache = { data: errata, fetchedAt: Date.now() };
     return errata;
   } catch (err) {
