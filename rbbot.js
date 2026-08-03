@@ -268,9 +268,9 @@ bot.on("message", async (msg) => {
 
       if (!card) {
         await bot.sendMessage(chatId,
-          `❌ Card not found: *${esc(name)}*\nCheck the spelling and try again\.`,
+          `❌ Card not found: *${esc(name)}*\nCheck the spelling and try again`,
           { parse_mode: "MarkdownV2", reply_to_message_id: msg.message_id }
-        );
+        ).catch(() => {});
         continue;
       }
 
@@ -300,14 +300,14 @@ bot.on("message", async (msg) => {
         console.error(`[caption_dump] ${caption}`);
         // Fallback: send as plain text so user still gets something
         await bot.sendMessage(chatId,
-          `Found: ${card.name} — but had a formatting error displaying it\.`,
+          `Found: ${esc(card.name)} — but had a formatting error displaying it`,
           { parse_mode: "MarkdownV2", reply_to_message_id: msg.message_id }
         ).catch(() => {});
       }
     } catch (err) {
       console.error(`Error looking up "${name}":`, err.message);
       await bot.sendMessage(chatId,
-        `⚠️ Error fetching *${esc(name)}*\. Try again later\.`,
+        `⚠️ Error fetching *${esc(name)}* — try again later`,
         { parse_mode: "MarkdownV2", reply_to_message_id: msg.message_id }
       ).catch(() => {});
     }
