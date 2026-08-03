@@ -306,7 +306,12 @@ bot.on("message", async (msg) => {
   }
 });
 
-// ─── Minimal HTTP server (required for Render free tier) ─────────────────────
+// ─── Suppress verbose polling errors (prevents crash on network blips) ────────
+bot.on("polling_error", (err) => {
+  console.error(`[polling_error] ${err.code}: ${err.message}`);
+});
+
+
 const http = require("http");
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
