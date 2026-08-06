@@ -70,13 +70,15 @@ async function lookupCard(cardName) {
   const name = cardName.trim();
   const queryParam = name.replace(/[,]/g, "").replace(/\s+/g, "+");
 
-  // Use search endpoint as primary — /cards/name is broken (always redirects)
+  // Use fuzzy endpoint — search is broken, fuzzy works correctly
+  // Use first word only for fuzzy to get broadest results, then filter by name
+  const firstWord = name.split(/[\s,]/)[0];
   try {
-    const url = `${RIFTCODEX_BASE}/cards/search?query=${queryParam}`;
-    console.log(`[search] GET ${url}`);
+    const url = `${RIFTCODEX_BASE}/cards/name?fuzzy=${encodeURIComponent(firstWord)}`;
+    console.log(`[fuzzy] GET ${url}`);
     const res = await fetch(url, { headers: RIFTCODEX_HEADERS });
     const json = await res.json();
-    console.log(`[search] Response: ${JSON.stringify(json).slice(0, 400)}`);
+    console.log(`[fuzzy] Response: ${JSON.stringify(json).slice(0, 400)}`);
     const cards = json.items ?? json.data ?? (Array.isArray(json) ? json : null);
     if (cards && cards.length > 0) {
       // Prefer exact name match first
@@ -84,19 +86,19 @@ async function lookupCard(cardName) {
         c.name?.toLowerCase() === name.toLowerCase()
       );
       if (exactMatch) {
-        console.log(`[search] Exact match: "${exactMatch.name}"`);
+        console.log(`[fuzzy] Exact match: "${exactMatch.name}"`);
         return exactMatch;
       }
       // Fall back to similarity check
       const similarMatch = cards.find(c => isSimilarEnough(name, c.name ?? ""));
       if (similarMatch) {
-        console.log(`[search] Similar match: "${similarMatch.name}"`);
+        console.log(`[fuzzy] Similar match: "${similarMatch.name}"`);
         return similarMatch;
       }
-      console.log(`[search] No match among ${cards.length} results for "${name}"`);
+      console.log(`[fuzzy] No match among ${cards.length} results for "${name}"`);
     }
   } catch (err) {
-    console.error("[search] Error:", err.message);
+    console.error("[fuzzy] Error:", err.message);
   }
 
   return null;
