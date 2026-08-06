@@ -29,16 +29,16 @@ function esc(text) {
 function replaceSymbols(text) {
   if (!text) return "";
   return text
-    .replace(/:rb_rune_rainbow:/gi, "🔮")
+    .replace(/:rb_rune_rainbow:/gi, "🔘")
     .replace(/:rb_rune_fury:/gi,    "🔴")
-    .replace(/:rb_rune_calm:/gi,    "🔵")
-    .replace(/:rb_rune_mind:/gi,    "🟣")
-    .replace(/:rb_rune_body:/gi,    "🟢")
-    .replace(/:rb_rune_chaos:/gi,   "🟤")
+    .replace(/:rb_rune_calm:/gi,    "🟢")
+    .replace(/:rb_rune_mind:/gi,    "🔵")
+    .replace(/:rb_rune_body:/gi,    "🟠")
+    .replace(/:rb_rune_chaos:/gi,   "🟣")
     .replace(/:rb_rune_order:/gi,   "🟡")
-    .replace(/:rb_might:/gi,        "⚔️")
+    .replace(/:rb_might:/gi,        "💪🏼")
     .replace(/:rb_energy:/gi,       "⚡")
-    .replace(/:rb_power:/gi,        "💎")
+    .replace(/:rb_power:/gi,        "🔋")
     .replace(/:rb_[a-z_]+:/gi, "");
 }
 
@@ -56,15 +56,20 @@ function isSimilarEnough(searchName, resultName) {
   const a = searchName.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
   const b = resultName.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
 
-  // Accept if result contains any word from the search (at least 4 chars)
+  // Exact or contained match
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+
+  // Require majority of search words (min 4 chars) to appear in result
   const searchWords = a.split(/\s+/).filter(w => w.length >= 4);
+  if (searchWords.length === 0) return false;
+
   const resultWords = b.split(/\s+/);
-  const hasCommonWord = searchWords.some(sw => resultWords.some(rw => rw.includes(sw) || sw.includes(rw)));
+  const matchCount = searchWords.filter(sw =>
+    resultWords.some(rw => rw.includes(sw) || sw.includes(rw))
+  ).length;
 
-  // Accept if search name is contained in result or vice versa
-  const directMatch = a.includes(b) || b.includes(a);
-
-  return hasCommonWord || directMatch;
+  // Need at least half the significant words to match
+  return matchCount >= Math.ceil(searchWords.length / 2) && matchCount >= 2;
 }
 async function lookupCard(cardName) {
   const name = cardName.trim();
@@ -227,8 +232,8 @@ function buildCaption(card, prices, rates, errata) {
   const typeLine = [supertype, type].filter(Boolean).join(" ");
   const stats = [
     energy != null ? `⚡ ${energy}` : null,
-    might != null ? `⚔️ ${might}` : null,
-    power != null ? `🛡️ ${power}` : null,
+    might != null ? `💪🏼 ${might}` : null,
+    power != null ? `🔋 ${power}` : null,
   ].filter(Boolean).join("  ");
 
   let caption = `*${esc(name)}*`;
